@@ -169,7 +169,14 @@ struct DeviceView: View {
 /// Reads the framebuffer in its own view so 30 fps display updates only redraw the OLED.
 private struct LiveOLED: View {
     @Environment(AppModel.self) private var model
-    var body: some View { OLEDModule(frame: model.frame) }
+    @AppStorage("hichord.bigDisplay") private var bigDisplay = true
+
+    var body: some View {
+        OLEDModule(frame: model.frame)
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { bigDisplay.toggle() } }
+            .accessibilityHint("Tap to show or hide the large display")
+    }
 }
 
 /// Fine horizontal brushing for the aluminium.

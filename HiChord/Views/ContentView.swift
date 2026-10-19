@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showHelp = false
     @AppStorage("hichord.seenWelcome") private var seenWelcome = false
+    @AppStorage("hichord.bigDisplay") private var bigDisplay = true
 
     var body: some View {
         GeometryReader { geo in
@@ -77,13 +78,24 @@ struct ContentView: View {
     }
 
     private func portraitLayout(_ size: CGSize) -> some View {
-        let width = min(size.width - 24, 640)
-        let joystick = min(width * 0.42, max(120, size.height * 0.22))
+        let width = min(size.width - 24, 860)
+        let joystick = min(width * 0.42, max(120, size.height * 0.22), 260)
+        let deviceHeight = width / DeviceView.aspect
+        // Room left for a magnified copy of the OLED above the device.
+        let spare = size.height - deviceHeight - max(joystick, 290) - 40 - 18 * 4 - 20
+        let displayHeight = min(spare, width * 0.32)
         return VStack(spacing: 18) {
             topBar
                 .frame(width: width)
                 .padding(.top, 4)
             Spacer(minLength: 0)
+            if bigDisplay && displayHeight >= 70 {
+                BigDisplay()
+                    .frame(width: displayHeight * 2.2, height: displayHeight)
+                    .onTapGesture { toggleBigDisplay() }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                Spacer(minLength: 0)
+            }
             DeviceView()
                 .frame(width: width)
             Spacer(minLength: 0)
@@ -101,6 +113,10 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .frame(width: size.width, height: size.height)
+    }
+
+    private func toggleBigDisplay() {
+        withAnimation(.easeInOut(duration: 0.2)) { bigDisplay.toggle() }
     }
 
     private func landscapeLayout(_ size: CGSize) -> some View {
@@ -126,5 +142,28 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(width: size.width, height: size.height)
+    }
+}
+
+/// A large live mirror of the OLED for reading at a distance.
+private struct BigDisplay: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        GeometryReader { geo in
+            let s = geo.size
+            ZStack {
+                RoundedRectangle(cornerRadius: s.height * 0.12, style: .continuous)
+                    .fill(Color.black)
+                    .overlay(RoundedRectangle(cornerRadius: s.height * 0.12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1))
+                    .shadow(color: Theme.oled.opacity(0.08), radius: 20)
+                OLEDView(frame: model.frame)
+                    .frame(width: (s.height * 0.84) * 2, height: s.height * 0.84)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Display")
+        .accessibilityHint("Tap to hide the large display")
     }
 }

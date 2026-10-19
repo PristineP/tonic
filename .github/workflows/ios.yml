@@ -18,7 +18,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Toolchain
         run: |
@@ -100,3 +100,10 @@ jobs:
           git add -f *.png
           git commit -m "Screenshots for ${SRC_SHA}" || exit 0
           git push origin ci-screenshots
+
+      - name: Warning summary
+        if: always()
+        run: |
+          echo "=== Compiler warnings in project sources ==="
+          cat build-*.log 2>/dev/null | grep -E "warning:" | grep -E "/(HiChord|HiChordCore)/" | sed -E 's#^.*/hichord/hichord/##' | sort -u || true
+          echo "=== end ==="
