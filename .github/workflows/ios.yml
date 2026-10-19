@@ -109,9 +109,10 @@ jobs:
             git checkout --orphan ci-screenshots
             git rm -rf --cached . >/dev/null
           fi
+          git rm -r -q --cached --ignore-unmatch build shots >/dev/null || true
           find . -maxdepth 1 -name '*.png' -delete
           cp shots/*.png .
-          git add -A -f -- '*.png'
+          git add -A -f -- ':(glob)*.png'
           git commit -m "Screenshots for ${SRC_SHA}" || exit 0
           git push origin ci-screenshots
 

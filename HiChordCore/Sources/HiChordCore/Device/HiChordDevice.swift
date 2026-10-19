@@ -880,9 +880,9 @@ public final class HiChordDevice {
             }
         }
         if status.loopLength > 0 && status.transportPlaying {
-            // Loop progress bar under the tracks.
+            // Loop progress bar on the bottom pixel row, under the tracks.
             let w = Int(Double(47) * status.loopPosition / status.loopLength)
-            f.hline(x: 40, y: y - 2, w: max(1, w))
+            f.hline(x: 40, y: OLEDFrame.height - 1, w: max(1, w))
         }
         // Battery
         if let battery {
