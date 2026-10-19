@@ -45,10 +45,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-sim.log | grep -E "error:|warning:|BUILD" || true
           grep -q "BUILD SUCCEEDED" build-sim.log
 
+      # Screenshots are a visual check; simulator boot on hosted runners is occasionally broken,
+      # so this step never fails the build (tests and both builds above are the gate).
       - name: Simulator screenshots
         timeout-minutes: 15
+        continue-on-error: true
         run: |
-          set -x
           APP=build/sim/Build/Products/Debug-iphonesimulator/HiChord.app
           mkdir -p shots
           DEVICES=$(xcrun simctl list devices available -j)
@@ -58,7 +60,8 @@ jobs:
           limit() {
             local secs="$1"; shift
             "$@" & local pid=$!
-            for i in $(seq 1 "$secs"); do kill -0 $pid 2>/dev/null || { wait $pid; return $?; }; sleep 1; done
+            local i=0
+            while [ $i -lt "$secs" ]; do kill -0 $pid 2>/dev/null || { wait $pid; return $?; }; sleep 1; i=$((i + 1)); done
             echo "::warning::timed out after ${secs}s: $*"; kill $pid 2>/dev/null; return 124
           }
           shoot() {
@@ -66,8 +69,9 @@ jobs:
             local udid
             udid=$(echo "$DEVICES" | jq -r --arg n "$device" '[.devices[][] | select(.name == $n)][0].udid // empty')
             if [ -z "$udid" ]; then echo "No simulator named $device"; return 0; fi
+            case " $FAILED " in *" $udid "*) echo "Skipping $name ($device failed to boot)"; return 0;; esac
             xcrun simctl boot "$udid" || true
-            limit 240 xcrun simctl bootstatus "$udid" -b || { echo "::warning::$device did not boot; skipping $name"; return 0; }
+            limit 240 xcrun simctl bootstatus "$udid" -b >/dev/null || { echo "::warning::$device did not boot; skipping $name"; FAILED="$FAILED $udid"; return 0; }
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 || true
             xcrun simctl install "$udid" "$APP"
             xcrun simctl spawn "$udid" defaults write com.pocketaudio.hichord hichord.seenWelcome -bool "${WELCOME_SEEN:-YES}"
@@ -82,6 +86,7 @@ jobs:
               exit 1
             fi
           }
+          FAILED=""
           shoot "$PHONE" iphone-portrait -uiDemo
           shoot "$PHONE" iphone-landscape -uiLandscape -uiDemo
           shoot "$PHONE" iphone-settings -uiSettings
@@ -97,7 +102,7 @@ jobs:
       - name: Publish screenshots to ci-screenshots branch
         if: always() && github.event_name == 'push'
         run: |
-          [ -d shots ] || exit 0
+          ls shots/*.png >/dev/null 2>&1 || { echo "No screenshots to publish"; exit 0; }
           for f in shots/*.png; do sips -Z 1400 "$f" >/dev/null; done
           SRC_SHA=$(git rev-parse --short HEAD)
           mv shots "$RUNNER_TEMP/shots"
