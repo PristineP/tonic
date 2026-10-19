@@ -91,6 +91,16 @@ public final class HiChordEngine {
     private var droneNotes = NoteSet()
     private var drumRepeatMask: UInt8 = 0
 
+    // Vocoder
+    private var vocoder = Vocoder()
+    private var vocoderOn = false
+    /// Microphone samples for the vocoder, written by the mic thread.
+    private let modulatorRing = SPSCQueue<Float>(capacity: 32768)
+    private let carrierL: UnsafeMutablePointer<Float>
+    private let carrierR: UnsafeMutablePointer<Float>
+    private let modL: UnsafeMutablePointer<Float>
+    private let modR: UnsafeMutablePointer<Float>
+
     // Clock
     private var tempo: Float = 100
     private var beatPos: Double = 0
@@ -160,6 +170,11 @@ public final class HiChordEngine {
         mixR = .allocate(capacity: HiChordEngine.chunk)
         mixL.initialize(repeating: 0, count: HiChordEngine.chunk)
         mixR.initialize(repeating: 0, count: HiChordEngine.chunk)
+        carrierL = .allocate(capacity: HiChordEngine.chunk)
+        carrierR = .allocate(capacity: HiChordEngine.chunk)
+        modL = .allocate(capacity: HiChordEngine.chunk)
+        modR = .allocate(capacity: HiChordEngine.chunk)
+        for p in [carrierL, carrierR, modL, modR] { p.initialize(repeating: 0, count: HiChordEngine.chunk) }
         let sampleCap = Int(maxRate * 3)
         let s0 = UnsafeMutablePointer<Float>.allocate(capacity: sampleCap)
         let s1 = UnsafeMutablePointer<Float>.allocate(capacity: sampleCap)
@@ -189,6 +204,7 @@ public final class HiChordEngine {
     deinit {
         voices.deallocate(); pluckBuffers.deallocate(); drums.deallocate(); patches.deallocate()
         trackKits.deallocate(); kitPads.deallocate(); mixL.deallocate(); mixR.deallocate()
+        carrierL.deallocate(); carrierR.deallocate(); modL.deallocate(); modR.deallocate()
         samples.0.data.deallocate(); samples.1.data.deallocate()
         held.deallocate(); heldActive.deallocate(); seqSteps.deallocate(); events.deallocate()
         eventCounts.deallocate(); trackStates.deallocate(); trackLevels.deallocate()
@@ -200,6 +216,7 @@ public final class HiChordEngine {
         let sr = Float(min(max(sampleRate, 8000), 96000))
         self.sampleRate = sr
         fx.configure(sampleRate: sr)
+        vocoder.configure(sampleRate: sr)
         fx.bpm = tempo
         strumSamples = 0.02 * sr
         masterFilter.0.set(cutoff: masterCutoff, resonance: 0.1, sampleRate: sr)
@@ -231,6 +248,11 @@ public final class HiChordEngine {
         slot == 0 ? (samples.0.data, samples.0.capacity) : (samples.1.data, samples.1.capacity)
     }
 
+    /// Feeds microphone audio to the vocoder. Call from a single (microphone) thread.
+    public func pushModulator(_ samples: UnsafePointer<Float>, count: Int) {
+        for i in 0..<count where !modulatorRing.push(samples[i]) { break }
+    }
+
     // MARK: Render
 
     /// Renders `frames` of stereo audio into the two non-interleaved buffers.
@@ -260,13 +282,41 @@ public final class HiChordEngine {
         mixR.update(repeating: 0, count: n)
         let sample0 = activeSample == 0 ? samples.0 : samples.1
         let sample: SampleSlot? = activeSample < 0 ? nil : sample0
+        let vocoding = vocoderOn
+        let trackModulator = vocoding && vocoder.params.source == .track1
+        if vocoding {
+            carrierL.update(repeating: 0, count: n)
+            carrierR.update(repeating: 0, count: n)
+            modL.update(repeating: 0, count: n)
+            modR.update(repeating: 0, count: n)
+            if !trackModulator {
+                for i in 0..<n { modL[i] = modulatorRing.pop() ?? 0 }
+            }
+        } else {
+            // Discard stale microphone audio so it never lags when the vocoder starts.
+            var dropped = 0
+            while dropped < 4096, modulatorRing.pop() != nil { dropped += 1 }
+        }
         for i in 0..<HiChordEngine.maxVoices where voices[i].isActive {
             let v = voices[i]
             let patch = patches[Int(v.patch)]
             let trackGain: Float = v.owner >= HiChordEngine.ownerTrackBase
                 ? trackLevels[Int(v.owner - HiChordEngine.ownerTrackBase)] : 1
-            voices[i].render(patch, frames: n, sampleRate: sr, left: mixL, right: mixR, table: table,
+            var outL = mixL, outR = mixR
+            if vocoding && v.owner < HiChordEngine.ownerTrackBase && v.owner != HiChordEngine.ownerPreview {
+                outL = carrierL; outR = carrierR // live playing is the carrier
+            } else if trackModulator && v.owner == HiChordEngine.ownerTrackBase {
+                outL = modL; outR = modR // loop track 1 is the voice
+            }
+            voices[i].render(patch, frames: n, sampleRate: sr, left: outL, right: outR, table: table,
                              sample: sample, gain: trackGain)
+        }
+        if vocoding {
+            for i in 0..<n {
+                carrierL[i] = 0.5 * (carrierL[i] + carrierR[i])
+                modL[i] = trackModulator ? 0.5 * (modL[i] + modR[i]) : modL[i]
+            }
+            vocoder.process(carrier: carrierL, modulator: modL, frames: n, outL: mixL, outR: mixR)
         }
         for i in 0..<HiChordEngine.maxDrumVoices where drums[i].active {
             let owner = drums[i].owner
@@ -300,7 +350,7 @@ public final class HiChordEngine {
 
     @inline(__always) private func softClip(_ x: Float) -> Float {
         let c = clamp(x, -3, 3)
-        return c * (27 + c * c) / (27 + 9 * c * c)
+        return clamp(c * (27 + c * c) / (27 + 9 * c * c), -1, 1)
     }
 
     private func publishStatus(peak: Float) {
@@ -426,6 +476,10 @@ public final class HiChordEngine {
                 startVoice(note: notes[i], velocity: 0.8, owner: HiChordEngine.ownerPreview, patch: 0, delay: d, gate: len)
             }
         case .stopPreview: killOwner(HiChordEngine.ownerPreview)
+        case let .vocoder(on, params):
+            if on && !vocoderOn { vocoder.reset() }
+            vocoderOn = on
+            vocoder.set(params)
         case let .drumRepeat(pad, on):
             guard pad >= 0 && pad < 7 else { return }
             if on { drumRepeatMask |= (1 << UInt8(pad)) } else { drumRepeatMask &= ~(1 << UInt8(pad)) }

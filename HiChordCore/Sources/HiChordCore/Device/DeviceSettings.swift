@@ -2,7 +2,7 @@ import Foundation
 
 /// The device's play modes (red button menu).
 public enum PlayMode: Int, CaseIterable, Codable, Sendable {
-    case play, strum, lead, drone, arp, repeatGate, sequencer, drums, beat, earTrainer, tuner, mic, mixer
+    case play, strum, lead, drone, arp, repeatGate, sequencer, drums, beat, chordHiro, earTrainer, tuner, mic, vocoder, mixer
 
     public var displayName: String {
         switch self {
@@ -15,9 +15,11 @@ public enum PlayMode: Int, CaseIterable, Codable, Sendable {
         case .sequencer: return "SEQUENCER"
         case .drums: return "DRUMS"
         case .beat: return "BEAT"
+        case .chordHiro: return "CHORD HIRO"
         case .earTrainer: return "EAR TRAIN"
         case .tuner: return "TUNER"
         case .mic: return "MIC"
+        case .vocoder: return "VOCODER"
         case .mixer: return "MIXER"
         }
     }
@@ -27,6 +29,8 @@ public enum PlayMode: Int, CaseIterable, Codable, Sendable {
         case .sequencer: return "SEQ"
         case .earTrainer: return "EAR"
         case .repeatGate: return "RPT"
+        case .chordHiro: return "HIRO"
+        case .vocoder: return "VOC"
         default: return displayName
         }
     }
@@ -34,7 +38,7 @@ public enum PlayMode: Int, CaseIterable, Codable, Sendable {
     /// Modes where the seven buttons play chords.
     public var playsChords: Bool {
         switch self {
-        case .play, .strum, .drone, .arp, .repeatGate, .sequencer: return true
+        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .vocoder: return true
         default: return false
         }
     }
@@ -49,8 +53,8 @@ public enum PlayMode: Int, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Whether the mode needs the microphone.
-    public var usesMicrophone: Bool { self == .tuner || self == .mic }
+    /// Whether the mode can use the microphone (the vocoder only with its mic source).
+    public var usesMicrophone: Bool { self == .tuner || self == .mic || self == .vocoder }
 }
 
 /// Everything the user can set, persisted between launches.
@@ -87,6 +91,10 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var showScope = true
     public var showKeyLabels = true
     public var haptics = true
+    public var vocoder = VocoderParams()
+    public var hiroSong = 0
+    /// Best Chord Hiro score per song.
+    public var hiroBest: [Int] = []
 
     public init() {}
 
@@ -124,6 +132,9 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         showScope = v(.showScope, d.showScope)
         showKeyLabels = v(.showKeyLabels, d.showKeyLabels)
         haptics = v(.haptics, d.haptics)
+        vocoder = v(.vocoder, d.vocoder)
+        hiroSong = v(.hiroSong, d.hiroSong)
+        hiroBest = v(.hiroBest, d.hiroBest)
         if harmony.buttonOctaves.count != 7 { harmony.buttonOctaves = Array(repeating: 0, count: 7) }
     }
 }

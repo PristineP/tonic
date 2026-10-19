@@ -81,6 +81,8 @@ struct HelpView: View {
         case .sequencer: return "Tap chords to add up to 16 steps, then click the joystick to play. Joystick ← undoes a step, ↓ clears."
         case .drums: return "Seven drum pads. Hold a pad and push the joystick for note repeat."
         case .beat: return "Seven beat styles (rock, break, dub, funk, house, dembow, swing). Joystick ←→ picks one of eight variations."
+        case .chordHiro: return "A rhythm game: chords scroll to the line in time with a beat; press each on the downbeat. Joystick ←→ picks a song, click starts."
+        case .vocoder: return "Hold chords and sing or talk into the mic: the chord takes the shape of your voice. In setup the source can be loop track 1 instead of the mic."
         case .earTrainer: return "HiChord plays the key's tonic, then a mystery note or chord. Answer with its key. Joystick ↑↓ changes level, → skips."
         case .tuner: return "Chromatic tuner using the microphone. Keys play reference notes."
         case .mic: return "Press a key and make a sound: HiChord samples it and you can play it as chords."

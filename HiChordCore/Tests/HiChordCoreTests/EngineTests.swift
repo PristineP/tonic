@@ -293,6 +293,39 @@ final class EngineTests: XCTestCase {
         XCTAssertNil(d.detect([Float](repeating: 0, count: 4096)))
     }
 
+    func testVocoderFollowsModulator() {
+        let e = dryEngine()
+        var saw = SoundLibrary.factory[0].params
+        saw.release = 0.05
+        e.send(.patch(saw))
+        e.send(.vocoder(on: true, params: VocoderParams()))
+        e.send(.press(id: 0, notes: NoteSet([48, 55, 60, 64]), velocity: 0.9))
+        // Silent modulator: the gate keeps the vocoder (and the carrier) quiet.
+        let silent = render(e, seconds: 0.4)
+        assertClean(silent)
+        XCTAssertLessThan(rms(silent[9600...]), 0.002)
+        // A buzzy "voice": pulse train at 140 Hz with a vowel-ish formant.
+        var voice = [Float](repeating: 0, count: 48000)
+        for i in 0..<voice.count {
+            let t = Double(i) / sr
+            voice[i] = Float(0.5 * sin(2 * .pi * 140 * t) + 0.3 * sin(2 * .pi * 700 * t) + 0.2 * sin(2 * .pi * 1200 * t))
+        }
+        var spoken: [Float] = []
+        var offset = 0
+        while offset < voice.count {
+            let n = min(1024, voice.count - offset)
+            voice.withUnsafeBufferPointer { e.pushModulator($0.baseAddress! + offset, count: n) }
+            spoken += render(e, seconds: Double(n) / sr)
+            offset += n
+        }
+        assertClean(spoken)
+        XCTAssertGreaterThan(rms(spoken[12000...]), 0.01)
+        // Turning the vocoder off returns the plain carrier.
+        e.send(.vocoder(on: false, params: VocoderParams()))
+        let plain = render(e, seconds: 0.3)
+        XCTAssertGreaterThan(rms(plain[4800...]), 0.01)
+    }
+
     func testRealtimePerformance() {
         // 24 sustained voices of the heaviest patch plus effects should render far faster than real time.
         let e = HiChordEngine(sampleRate: sr)

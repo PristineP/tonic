@@ -1,4 +1,4 @@
-import CHiChordAtomics
+internal import CHiChordAtomics
 
 /// A wait-free single-producer / single-consumer ring buffer for trivially copyable values.
 ///

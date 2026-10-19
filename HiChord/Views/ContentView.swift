@@ -168,8 +168,10 @@ private struct BigDisplay: View {
                     .frame(width: (s.height * 0.84) * 2, height: s.height * 0.84)
             }
         }
-        .accessibilityElement()
-        .accessibilityLabel("Display")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Large display")
+        .accessibilityValue(model.displayText)
+        .accessibilityIdentifier("bigDisplay")
         .accessibilityHint("Tap to hide the large display")
     }
 }

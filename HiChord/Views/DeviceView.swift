@@ -152,7 +152,7 @@ struct DeviceView: View {
     private func keyLabel(_ b: Int) -> String {
         let s = model.settings
         switch s.mode {
-        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .earTrainer:
+        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .earTrainer, .vocoder, .chordHiro:
             if s.mode == .earTrainer { return "?" }
             return ChordBuilder.diatonic(degree: b, settings: s.harmony).name(preferFlats: s.harmony.prefersFlats)
         case .lead, .tuner:
@@ -175,6 +175,10 @@ private struct LiveOLED: View {
         OLEDModule(frame: model.frame)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { bigDisplay.toggle() } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Display")
+            .accessibilityValue(model.displayText)
+            .accessibilityIdentifier("oled")
             .accessibilityHint("Tap to show or hide the large display")
     }
 }

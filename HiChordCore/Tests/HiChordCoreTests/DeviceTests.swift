@@ -151,6 +151,67 @@ final class DeviceTests: XCTestCase {
     }
 
     @MainActor
+    func testVocoderModeTogglesEngineAndMicrophone() async {
+        let (d, h) = makeDevice()
+        d.setMode(.vocoder)
+        XCTAssertTrue(h.micActive)
+        XCTAssertTrue(h.commands.contains { if case .vocoder(true, _) = $0 { return true }; return false })
+        d.update { $0.vocoder.source = .track1 }
+        XCTAssertFalse(h.micActive, "track-1 modulator needs no microphone")
+        d.pressButton(0)
+        XCTAssertEqual(d.displayChord, "C")
+        d.releaseButton(0)
+        d.setMode(.play)
+        guard case .vocoder(false, _)? = h.commands.last(where: { if case .vocoder = $0 { return true }; return false }) else {
+            return XCTFail("vocoder should switch off")
+        }
+    }
+
+    @MainActor
+    func testChordHiroGameFlow() async {
+        let (d, h) = makeDevice()
+        d.setMode(.chordHiro)
+        d.setJoystick(.right); d.setJoystick(.center)
+        XCTAssertEqual(d.settings.hiroSong, 1)
+        d.setJoystick(.left); d.setJoystick(.center)
+        d.clickJoystick()
+        XCTAssertEqual(d.hiro.phase, .waiting)
+        XCTAssertTrue(h.commands.contains { if case .beat(_, _, true) = $0 { return true }; return false })
+        // Simulate the engine clock: 100 BPM, beat 0 at t = 10.
+        func at(_ beat: Double) {
+            var s = d.status
+            s.beatOn = true
+            s.tempo = 100
+            s.beat = beat
+            d.status = s
+            d.tick(now: 10 + beat * 0.6)
+        }
+        at(0.1)
+        XCTAssertEqual(d.hiro.phase, .playing)
+        let song = d.hiro.song
+        for (i, degree) in song.degrees.enumerated() {
+            if i == 2, let dir = ProcessInfo.processInfo.environment["OLED_DUMP"] {
+                at(d.hiro.targetBeat(i) - 0.5)
+                let frame = d.render()
+                var pbm = "P1\n\(OLEDFrame.width) \(OLEDFrame.height)\n"
+                for y in 0..<OLEDFrame.height {
+                    pbm += (0..<OLEDFrame.width).map { frame.isOn(x: $0, y: y) ? "1" : "0" }.joined(separator: " ") + "\n"
+                }
+                try? pbm.write(toFile: "\(dir)/hiro-playing.pbm", atomically: true, encoding: .utf8)
+            }
+            at(d.hiro.targetBeat(i))
+            d.pressButton(degree)
+            d.releaseButton(degree)
+            at(d.hiro.targetBeat(i) + 1)
+        }
+        at(d.hiro.targetBeat(song.degrees.count - 1) + 4)
+        XCTAssertEqual(d.hiro.phase, .done)
+        XCTAssertEqual(d.hiro.grade, "S")
+        XCTAssertEqual(d.settings.hiroBest.first, d.hiro.score)
+        XCTAssertTrue(h.commands.contains { if case .beat(_, _, false) = $0 { return true }; return false })
+    }
+
+    @MainActor
     func testSettingsRoundTripAndTolerantDecoding() async throws {
         var s = DeviceSettings()
         s.harmony.key = 7

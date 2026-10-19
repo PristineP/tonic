@@ -76,6 +76,16 @@ public final class HiChordDevice {
     public var micLevel: Float = 0
     private var capturing = false
 
+    // Chord Hiro
+    public private(set) var hiro = ChordHiro()
+    private var hiroFeedbackUntil: TimeInterval = 0
+    private var statusStamp: TimeInterval = 0
+
+    /// The engine's beat position extrapolated to now.
+    private var beatNow: Double {
+        status.beat + max(0, now - statusStamp) * Double(status.tempo) / 60
+    }
+
     // Mixer
     public private(set) var trackLevels: [Float] = Array(repeating: 1, count: HiChordEngine.trackCount)
 
@@ -101,7 +111,14 @@ public final class HiChordDevice {
         send(.metronome(settings.metronome))
         sendMaster()
         for t in 0..<HiChordEngine.trackCount { send(.loopLevel(track: Int32(t), level: trackLevels[t])) }
-        host?.setMicrophoneActive(settings.mode.usesMicrophone)
+        send(.vocoder(on: settings.mode == .vocoder, params: settings.vocoder))
+        updateMicrophone()
+    }
+
+    /// Asks the host for the microphone only when the current mode needs it.
+    private func updateMicrophone() {
+        let needsMic = settings.mode.usesMicrophone && !(settings.mode == .vocoder && settings.vocoder.source == .track1)
+        host?.setMicrophoneActive(needsMic)
     }
 
     /// Replaces all settings (e.g. loading a preset).
@@ -122,6 +139,14 @@ public final class HiChordDevice {
 
     public func tick(now: TimeInterval) {
         self.now = now
+        statusStamp = now // the host refreshes `status` right before each tick
+        if settings.mode == .chordHiro {
+            if hiro.phase == .waiting && status.beatOn { hiro.begin(atBeat: beatNow) }
+            if hiro.phase == .playing {
+                if hiro.advance(toBeat: beatNow) > 0 { hiroFeedbackUntil = now + 0.6; haptic(.warning) }
+                if hiro.phase == .done { finishHiro() }
+            }
+        }
         if let m = message, now > m.until { message = nil }
         if let f = earFeedback, now > f.until { earFeedback = nil }
         if let next = earNextAt, now >= next {
@@ -155,7 +180,7 @@ public final class HiChordDevice {
         }
 
         switch settings.mode {
-        case .play, .strum, .drone, .arp, .repeatGate:
+        case .play, .strum, .drone, .arp, .repeatGate, .vocoder:
             if settings.slashChords, settings.mode != .arp, let other = heldButtons.first(where: { $0 != b && !slashBassButtons.contains($0) }) {
                 // Second button becomes the slash bass of the first.
                 slashBassButtons.insert(b)
@@ -193,6 +218,12 @@ public final class HiChordDevice {
             }
         case .earTrainer:
             answerEar(b)
+        case .chordHiro:
+            playChord(b)
+            if let j = hiro.press(degree: b, atBeat: beatNow) {
+                hiroFeedbackUntil = now + 0.6
+                haptic(j == .miss ? .warning : .success)
+            }
         case .tuner:
             // Reference tone for the scale degree.
             let note = leadNote(b, direction: .center)
@@ -227,7 +258,7 @@ public final class HiChordDevice {
             return
         }
         switch settings.mode {
-        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .lead:
+        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .lead, .vocoder, .chordHiro:
             send(.release(id: Int32(b)))
             // Releasing the chord button also releases slash basses attached to it.
             for (bass, target) in slashTarget where target == b { slashTarget[bass] = nil; slashBassButtons.remove(bass) }
@@ -312,7 +343,7 @@ public final class HiChordDevice {
         }
 
         switch settings.mode {
-        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .lead:
+        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .lead, .vocoder:
             if !heldButtons.isEmpty {
                 for b in heldButtons where buttonSwipes[b, default: .center] == .center && !slashBassButtons.contains(b) {
                     retrigger(b)
@@ -345,6 +376,14 @@ public final class HiChordDevice {
                 trackLevels[t] = min(1.5, max(0, trackLevels[t] + (dir == .up ? 0.1 : -0.1)))
                 send(.loopLevel(track: Int32(t), level: trackLevels[t]))
                 flash("TRACK \(t + 1)", "\(Int((trackLevels[t] * 100).rounded()))%")
+            }
+        case .chordHiro:
+            if previous == .center && (dir == .left || dir == .right) && hiro.phase != .playing && hiro.phase != .waiting {
+                let n = ChordHiro.songs.count
+                settings.hiroSong = (settings.hiroSong + (dir == .right ? 1 : n - 1)) % n
+                hiro.songIndex = settings.hiroSong
+                hiro.stop()
+                changed()
             }
         case .earTrainer:
             if previous == .center && dir == .right { askEarQuestion() }
@@ -383,6 +422,15 @@ public final class HiChordDevice {
         case .beat:
             send(.beat(style: Int32(settings.beatStyle.rawValue), variation: Int32(settings.beatVariation), on: !status.beatOn))
             status.beatOn.toggle()
+        case .chordHiro:
+            if hiro.phase == .playing || hiro.phase == .waiting {
+                hiro.stop()
+                send(.beat(style: Int32(hiro.song.style.rawValue), variation: 0, on: false))
+            } else {
+                hiro.songIndex = settings.hiroSong
+                hiro.arm()
+                send(.beat(style: Int32(hiro.song.style.rawValue), variation: 0, on: true))
+            }
         case .earTrainer:
             replayEar()
         case .mic:
@@ -500,6 +548,10 @@ public final class HiChordDevice {
         if old.loopBars != s.loopBars { send(.loopBars(Int32(s.loopBars))) }
         if old.metronome != s.metronome { send(.metronome(s.metronome)) }
         if old.earLevel != s.earLevel { ear.level = s.earLevel }
+        if old.vocoder != s.vocoder {
+            send(.vocoder(on: s.mode == .vocoder, params: s.vocoder))
+            updateMicrophone()
+        }
         changed()
     }
 
@@ -521,11 +573,16 @@ public final class HiChordDevice {
             if old == .sequencer { send(.seqPlay(false)) }
             if old == .earTrainer { send(.stopPreview); earNextAt = nil }
             if old == .drums { for p in 0..<7 { send(.drumRepeat(pad: Int32(p), on: false)) } }
+            if old == .chordHiro && hiro.phase != .idle {
+                hiro.stop()
+                send(.beat(style: Int32(hiro.song.style.rawValue), variation: 0, on: false))
+            }
         }
         settings.mode = mode
         send(.style(mode.engineStyle))
         sendPatch()
-        host?.setMicrophoneActive(mode.usesMicrophone)
+        send(.vocoder(on: mode == .vocoder, params: settings.vocoder))
+        updateMicrophone()
         if mode == .earTrainer && old != .earTrainer {
             ear.reset()
             askEarQuestion()
@@ -595,7 +652,7 @@ public final class HiChordDevice {
         switch settings.mode {
         case .lead:
             playLead(b)
-        case .play, .strum, .drone, .arp, .repeatGate, .sequencer:
+        case .play, .strum, .drone, .arp, .repeatGate, .sequencer, .vocoder:
             let spec = chordSpec(for: b)
             guard spec != buttonChords[b] else { return }
             playChord(b)
@@ -685,6 +742,10 @@ public final class HiChordDevice {
             MenuItem(title: "GLIDE", value: { $0.leadGlide <= 0.001 ? "OFF" : "\(Int(($0.leadGlide * 1000).rounded()))MS" },
                      change: { s, d in s.leadGlide = self.step(s.leadGlide, d, by: 0.02, 0, 0.5) }),
             MenuItem(title: "SCOPE", value: { $0.showScope ? "ON" : "OFF" }, change: { s, _ in s.showScope.toggle() }),
+            MenuItem(title: "VOC SOURCE", value: { $0.vocoder.source.displayName }, change: { s, d in s.vocoder.source = self.cycle(s.vocoder.source, d) }),
+            MenuItem(title: "VOC FORMANT", value: { String(format: "x%.2f", $0.vocoder.formant) },
+                     change: { s, d in s.vocoder.formant = self.step(s.vocoder.formant, d, by: 0.05, 0.5, 2) }),
+            MenuItem(title: "VOC NOISE", value: { Self.pct($0.vocoder.noise) }, change: { s, d in s.vocoder.noise = self.step(s.vocoder.noise, d, by: 0.05, 0, 1) }),
         ]
     }
 
@@ -812,6 +873,97 @@ public final class HiChordDevice {
 
     static let numerals = ["I", "II", "III", "IV", "V", "VI", "VII"]
 
+    // MARK: Accessibility
+
+    /// What the display shows, in words (VoiceOver and UI tests).
+    public var accessibilityText: String {
+        if let m = message { return [m.title, m.detail].compactMap { $0 }.joined(separator: " ") }
+        let h = settings.harmony
+        switch screen {
+        case .keyMenu: return "Key \(NoteNames.keyName(h.key)) \(h.scale.displayName.capitalized), octave \(h.octave)"
+        case .soundMenu: return "Sound \(currentSound.name)"
+        case .modeMenu: return "Mode \(settings.mode.displayName)"
+        case .keyList, .soundList, .modeList:
+            let items = currentItems
+            guard items.indices.contains(listIndex) else { return "Setup" }
+            return "\(items[listIndex].title) \(items[listIndex].value(settings))"
+        case .home:
+            switch settings.mode {
+            case .tuner:
+                guard let t = tuner, t.confidence > 0.5 else { return "Tuner, play a note" }
+                return "Tuner \(NoteNames.noteName(midi: t.nearestNote)) \(Int(t.cents.rounded())) cents"
+            case .chordHiro:
+                return hiro.phase == .done ? "Chord Hiro grade \(hiro.grade), score \(hiro.score)" : "Chord Hiro \(hiro.song.name), score \(hiro.score)"
+            case .earTrainer:
+                return earFeedback?.text ?? "Ear trainer \(settings.earLevel.displayName), score \(ear.score) of \(ear.attempts)"
+            case .drums: return lastDrumPad.map { DrumKit.padNames[$0] } ?? "Drums \(settings.kit.displayName)"
+            case .beat: return "Beat \(settings.beatStyle.displayName) variation \(settings.beatVariation + 1)"
+            default: return displayChord ?? settings.mode.displayName
+            }
+        }
+    }
+
+    // MARK: Chord Hiro
+
+    private func finishHiro() {
+        send(.beat(style: Int32(hiro.song.style.rawValue), variation: 0, on: false))
+        let i = hiro.songIndex
+        if settings.hiroBest.count < ChordHiro.songs.count {
+            settings.hiroBest += Array(repeating: 0, count: ChordHiro.songs.count - settings.hiroBest.count)
+        }
+        if hiro.score > settings.hiroBest[i] {
+            settings.hiroBest[i] = hiro.score
+            flash("NEW BEST!", "\(hiro.score)")
+        }
+        haptic(.success)
+        changed()
+    }
+
+    private func drawHiro(_ f: inout OLEDFrame) {
+        let best = settings.hiroBest.indices.contains(hiro.songIndex) ? settings.hiroBest[hiro.songIndex] : 0
+        switch hiro.phase {
+        case .idle:
+            f.text("◀ " + hiro.song.name + " ▶", y: 12, align: .center)
+            f.fittedText("HIRO", centerY: 32, maxScale: 3)
+            f.text("● START   BEST \(best)", y: 45, align: .center)
+        case .done:
+            f.text(hiro.song.name, y: 12, align: .center)
+            f.fittedText("GRADE " + hiro.grade, centerY: 28, maxScale: 2)
+            f.text("SCORE \(hiro.score)  COMBO \(hiro.bestCombo)", y: 41, align: .center)
+            f.text("● AGAIN  ◀▶ SONG", y: 49, align: .center)
+        case .waiting, .playing:
+            // Lane: chords travel right-to-left onto the hit line.
+            let hitX = 18
+            let pxPerBeat = 13.0
+            f.vline(x: hitX, y: 13, h: 26)
+            f.vline(x: hitX + 1, y: 13, h: 26)
+            f.hline(x: 0, y: 26, w: OLEDFrame.width)
+            if hiro.phase == .playing {
+                let b = beatNow
+                for (i, degree) in hiro.song.degrees.enumerated() {
+                    let x = hitX + Int(((hiro.targetBeat(i) - b) * pxPerBeat).rounded())
+                    guard x > -20 && x < OLEDFrame.width else { continue }
+                    let label = HiChordDevice.numerals[degree]
+                    let w = OLEDFrame.textWidth(label) + 4
+                    f.fill(x: x - w / 2, y: 20, w: w, h: 13, on: false)
+                    f.rect(x: x - w / 2, y: 20, w: w, h: 13)
+                    f.text(label, x: x - w / 2 + 2, y: 23)
+                    if hiro.results.indices.contains(i), hiro.results[i] != nil { f.invert(x: x - w / 2, y: 20, w: w, h: 13) }
+                }
+                // Beat ticks
+                let phase = b - b.rounded(.down)
+                if phase < 0.15 { f.fill(x: hitX - 3, y: 13, w: 8, h: 2) }
+            } else {
+                f.text("GET READY", y: 23, align: .center)
+            }
+            if now < hiroFeedbackUntil, let j = hiro.lastJudgement {
+                f.text(j.label, y: 37, align: .center, scale: 1)
+            }
+            f.text("\(hiro.score)", x: 1, y: 47)
+            if hiro.combo > 1 { f.text("x\(hiro.combo)", y: 47, align: .right, inset: 1) }
+        }
+    }
+
     // MARK: Output helpers
 
     private func send(_ cmd: EngineCommand) { host?.send(cmd) }
@@ -820,6 +972,11 @@ public final class HiChordDevice {
         var p = currentSound.params.withEnvelope(attackScale: settings.attackScale, releaseScale: settings.releaseScale)
         if settings.mode == .lead { p.glide = settings.leadGlide }
         if settings.mode == .drone { p.attack = max(p.attack, 0.4); p.release = max(p.release, 1.5) }
+        if settings.mode == .vocoder {
+            // A bright, sustained carrier makes speech intelligible whatever sound is selected.
+            p = SoundLibrary.factory[0].params
+            p.cutoff = 9000; p.filterEnv = 0; p.sustain = 1; p.attack = 0.01; p.release = 0.15
+        }
         send(.patch(p))
     }
 
@@ -908,7 +1065,7 @@ public final class HiChordDevice {
         }
         let midY = 31
         switch settings.mode {
-        case .play, .strum, .lead, .drone, .arp, .repeatGate, .sequencer:
+        case .play, .strum, .lead, .drone, .arp, .repeatGate, .sequencer, .vocoder:
             let idle = heldButtons.isEmpty && now - lastChordTime > 2.5
             if idle && settings.showScope && !scope.isEmpty && status.peak > 0.002 {
                 drawScope(&f, top: 12, height: 38)
@@ -920,6 +1077,7 @@ public final class HiChordDevice {
                 case .repeatGate: detail += "  RPT " + settings.repeatRate.displayName
                 case .strum: detail += "  STRUM"
                 case .drone: detail += "  DRONE"
+                case .vocoder: detail += "  VOC " + settings.vocoder.source.displayName
                 case .lead: detail = "LEAD"
                 case .sequencer:
                     detail = status.seqPlaying ? "▶ STEP \(status.seqStep + 1)/\(seqNames.count)" : "STEPS \(seqNames.count)/16"
@@ -950,6 +1108,8 @@ public final class HiChordDevice {
                     if s % 4 == 0 { f.fill(x: x + 1, y: 51, w: 3, h: 1) }
                 }
             }
+        case .chordHiro:
+            drawHiro(&f)
         case .earTrainer:
             f.text(settings.earLevel.displayName, y: 12, align: .center)
             if let fb = earFeedback {

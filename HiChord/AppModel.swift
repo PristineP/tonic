@@ -21,6 +21,8 @@ final class AppModel: DeviceHost {
 
     // Published state
     private(set) var frame = OLEDFrame()
+    /// The display in words, for VoiceOver.
+    private(set) var displayText = ""
     private(set) var status = EngineStatus()
     private(set) var settings: DeviceSettings
     private(set) var pressedButtons: Set<Int> = []
@@ -53,6 +55,7 @@ final class AppModel: DeviceHost {
         audio.onRestart = { [weak self] in self?.device.syncEngine() }
         mic.onPitch = { [weak self] result in self?.device.tuner = result }
         mic.onLevel = { [weak self] level in self?.device.micLevel = level }
+        mic.modulator = audio.core
     }
 
     func start() {
@@ -127,7 +130,10 @@ final class AppModel: DeviceHost {
         device.battery = level >= 0 ? level : nil
         device.tick(now: CACurrentMediaTime())
         let f = device.render()
-        if f != frame { frame = f }
+        if f != frame {
+            frame = f
+            displayText = device.accessibilityText
+        }
         if !statusEqual(s, status) { status = s }
     }
 
@@ -234,6 +240,7 @@ final class AppModel: DeviceHost {
     private func refresh() {
         if settings != device.settings { settings = device.settings }
         frame = device.render()
+        displayText = device.accessibilityText
     }
 
     // MARK: DeviceHost

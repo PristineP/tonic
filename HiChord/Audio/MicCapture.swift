@@ -23,6 +23,8 @@ final class MicCapture {
     private var captureDeadline: Date?
     private let log = Logger(subsystem: "com.pocketaudio.hichord", category: "mic")
     private(set) var isActive = false
+    /// Engine that receives microphone audio for the vocoder.
+    var modulator: HiChordEngine?
 
     static let captureSeconds = 1.6
 
@@ -48,7 +50,7 @@ final class MicCapture {
             return
         }
         buffer.reset(sampleRate: format.sampleRate)
-        MicCapture.installTap(on: input, format: format, ring: buffer)
+        MicCapture.installTap(on: input, format: format, ring: buffer, modulator: modulator)
         do {
             engine.prepare()
             try engine.start()
@@ -85,10 +87,13 @@ final class MicCapture {
         captureDeadline = Date().addingTimeInterval(MicCapture.captureSeconds)
     }
 
-    nonisolated private static func installTap(on input: AVAudioInputNode, format: AVAudioFormat, ring: SampleRing) {
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { pcm, _ in
+    nonisolated private static func installTap(on input: AVAudioInputNode, format: AVAudioFormat, ring: SampleRing,
+                                               modulator: HiChordEngine?) {
+        input.installTap(onBus: 0, bufferSize: 512, format: format) { pcm, _ in
             guard let data = pcm.floatChannelData else { return }
-            ring.append(data[0], count: Int(pcm.frameLength))
+            let count = Int(pcm.frameLength)
+            ring.append(data[0], count: count)
+            modulator?.pushModulator(data[0], count: count)
         }
     }
 

@@ -95,6 +95,7 @@ public enum EngineCommand: Sendable {
     case preview(notes: NoteSet, delay: Float, duration: Float)
     case stopPreview
     case drumRepeat(pad: Int32, on: Bool)
+    case vocoder(on: Bool, params: VocoderParams)
 }
 
 /// A MIDI message produced by the engine for MIDI output.

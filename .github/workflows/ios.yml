@@ -45,6 +45,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-sim.log | grep -E "error:|warning:|BUILD" || true
           grep -q "BUILD SUCCEEDED" build-sim.log
 
+      - name: App tests (unit + UI, simulator)
+        timeout-minutes: 30
+        run: |
+          set -o pipefail
+          PHONE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | .name | select(test("^iPhone [0-9]+ Pro$"))] | sort | last')
+          echo "Testing on $PHONE"
+          xcodebuild test -project HiChord.xcodeproj -scheme HiChord \
+            -destination "platform=iOS Simulator,name=$PHONE" -derivedDataPath build/test \
+            -retry-tests-on-failure -test-iterations 2 \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build-test.log | grep -E "error:|warning:|Test Case .*(passed|failed|skipped)|Executed|TEST (SUCCEEDED|FAILED)" || true
+          grep -q "TEST SUCCEEDED" build-test.log
+
       # Screenshots are a visual check; simulator boot on hosted runners is occasionally broken,
       # so this step never fails the build (tests and both builds above are the gate).
       - name: Simulator screenshots
