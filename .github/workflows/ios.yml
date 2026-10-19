@@ -54,20 +54,25 @@ jobs:
           DEVICES=$(xcrun simctl list devices available -j)
           PHONE=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPhone [0-9]+ Pro$"))] | sort | last // empty')
           PAD=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPad Pro"))] | sort | last // empty')
+          # Runs a command with a time limit (macOS has no coreutils `timeout`).
+          limit() {
+            local secs="$1"; shift
+            "$@" & local pid=$!
+            for i in $(seq 1 "$secs"); do kill -0 $pid 2>/dev/null || { wait $pid; return $?; }; sleep 1; done
+            echo "::warning::timed out after ${secs}s: $*"; kill $pid 2>/dev/null; return 124
+          }
           shoot() {
             local device="$1" name="$2"; shift 2
             local udid
             udid=$(echo "$DEVICES" | jq -r --arg n "$device" '[.devices[][] | select(.name == $n)][0].udid // empty')
             if [ -z "$udid" ]; then echo "No simulator named $device"; return 0; fi
             xcrun simctl boot "$udid" || true
-            xcrun simctl bootstatus "$udid" -b
+            limit 240 xcrun simctl bootstatus "$udid" -b || { echo "::warning::$device did not boot; skipping $name"; return 0; }
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 || true
             xcrun simctl install "$udid" "$APP"
             xcrun simctl spawn "$udid" defaults write com.pocketaudio.hichord hichord.seenWelcome -bool "${WELCOME_SEEN:-YES}"
             # A hung launch would otherwise block forever (the simulator has no watchdog).
-            ( xcrun simctl launch --terminate-running-process "$udid" com.pocketaudio.hichord "$@" & pid=$!; \
-              for i in $(seq 1 60); do kill -0 $pid 2>/dev/null || exit 0; sleep 1; done; \
-              echo "::error::simctl launch did not return ($name)"; kill $pid ) || true
+            limit 90 xcrun simctl launch --terminate-running-process "$udid" com.pocketaudio.hichord "$@" || echo "::error::launch did not complete ($name)"
             sleep 7
             xcrun simctl io "$udid" screenshot "shots/$name.png"
             # Fail if the app is no longer running (crash).
