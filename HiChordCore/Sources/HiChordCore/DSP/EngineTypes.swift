@@ -123,6 +123,8 @@ public struct EngineStatus: Sendable {
     public var seqPlaying = false
     public var activeVoices: Int32 = 0
 
+    public init() {}
+
     public func trackState(_ t: Int) -> TrackState {
         let raw: Int8
         switch t {
