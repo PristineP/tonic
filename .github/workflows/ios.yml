@@ -1,0 +1,102 @@
+name: iOS
+
+on:
+  push:
+    branches-ignore: [ci-screenshots]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available | head -40
+
+      - name: Core unit tests
+        run: swift test --package-path HiChordCore
+
+      - name: Build (Release, device, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project HiChord.xcodeproj -scheme HiChord -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-device.log | grep -E "error:|warning:|BUILD" || true
+          grep -q "BUILD SUCCEEDED" build-device.log
+
+      - name: Build (Debug, simulator)
+        run: |
+          set -o pipefail
+          xcodebuild -project HiChord.xcodeproj -scheme HiChord -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-sim.log | grep -E "error:|warning:|BUILD" || true
+          grep -q "BUILD SUCCEEDED" build-sim.log
+
+      - name: Simulator screenshots
+        run: |
+          set -x
+          APP=build/sim/Build/Products/Debug-iphonesimulator/HiChord.app
+          mkdir -p shots
+          DEVICES=$(xcrun simctl list devices available -j)
+          PHONE=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPhone [0-9]+ Pro$"))] | sort | last // empty')
+          PAD=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPad Pro"))] | sort | last // empty')
+          shoot() {
+            local device="$1" name="$2"; shift 2
+            local udid
+            udid=$(echo "$DEVICES" | jq -r --arg n "$device" '[.devices[][] | select(.name == $n)][0].udid // empty')
+            if [ -z "$udid" ]; then echo "No simulator named $device"; return 0; fi
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 || true
+            xcrun simctl install "$udid" "$APP"
+            xcrun simctl spawn "$udid" defaults write com.pocketaudio.hichord hichord.seenWelcome -bool "${WELCOME_SEEN:-YES}"
+            xcrun simctl launch --terminate-running-process "$udid" com.pocketaudio.hichord "$@"
+            sleep 7
+            xcrun simctl io "$udid" screenshot "shots/$name.png"
+            # Fail if the app is no longer running (crash).
+            if ! xcrun simctl spawn "$udid" launchctl list | grep -q com.pocketaudio.hichord; then
+              echo "::error::App not running after launch ($name)"
+              xcrun simctl spawn "$udid" log show --last 2m --predicate 'process == "HiChord"' | tail -120
+              exit 1
+            fi
+          }
+          shoot "$PHONE" iphone-portrait -uiDemo
+          shoot "$PHONE" iphone-landscape -uiLandscape -uiDemo
+          shoot "$PHONE" iphone-settings -uiSettings
+          WELCOME_SEEN=NO shoot "$PHONE" iphone-guide
+          if [ -n "$PAD" ]; then shoot "$PAD" ipad -uiDemo; fi
+          ls -la shots
+
+      - name: Publish screenshots to ci-screenshots branch
+        if: always() && github.event_name == 'push'
+        run: |
+          [ -d shots ] || exit 0
+          for f in shots/*.png; do sips -Z 1400 "$f" >/dev/null; done
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          SRC_SHA=$(git rev-parse --short HEAD)
+          git fetch origin ci-screenshots || true
+          if git rev-parse --verify origin/ci-screenshots >/dev/null 2>&1; then
+            git checkout -B ci-screenshots origin/ci-screenshots
+          else
+            git checkout --orphan ci-screenshots
+            git rm -rf --cached . >/dev/null
+          fi
+          find . -maxdepth 1 -name '*.png' -delete
+          cp shots/*.png .
+          git add -f *.png
+          git commit -m "Screenshots for ${SRC_SHA}" || exit 0
+          git push origin ci-screenshots
