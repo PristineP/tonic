@@ -7,7 +7,7 @@ An emulator of the Pocket Audio **HiChord** pocket chord synthesizer. The device
 - **Seven chord keys** for the seven diatonic chords of any of 12 keys and 10 scales (major, minor, harmonic/melodic minor, pentatonics, blues, Dorian, Mixolydian, Lydian).
 - **Eight-way joystick** with five maps (Default, Extended, Chromatic, Borrow, OG): 7ths, 9ths, sus, altered dominants, secondary dominants, tritone subs, modal interchange. Swipe on a held key to bend just that chord.
 - Inversions, voice leading, root and auto-slash bass, two-button slash chords, per-key octaves.
-- **13 modes**: Play, Strum, Lead, Drone, Arp, Repeat, Sequencer (16 steps), Drums, Beat (7 styles × 8 variations), Ear Trainer (6 levels), Tuner, Mic sampler, Mixer.
+- **15 modes**: Play, Strum, Lead, Drone, Arp, Repeat, Sequencer (16 steps), Drums, Beat (7 styles × 8 variations), Chord Hiro (rhythm game, 6 songs), Ear Trainer (6 levels), Tuner, Mic sampler, Vocoder (12-band, mic or loop track 1 as the voice), Mixer.
 - **28 sounds** from a real-time synth engine: band-limited analog waveforms, supersaw, 2-op FM, Karplus-Strong strings, drawbar organ, formant voices, noise, plus your own mic sample.
 - **Effects**: room/hall/plate/spring/ambient reverb, tempo-synced ping-pong delay, chorus/flanger, tremolo, tube/drive/distortion/fuzz, lo-fi/vinyl/tape, stereo spread, filter wheel.
 - **Six-track looper**: bar mode with count-in, or free mode; mute, re-record, clear, per-track levels.
@@ -35,6 +35,10 @@ The audio thread never locks or allocates. The UI sends commands through a wait-
 3. Run on an iPhone or iPad. Use a real device for the best latency.
 
 Before an App Store submission, check the version and build numbers (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) and review the privacy manifest in `HiChord/PrivacyInfo.xcprivacy`.
+
+## Installing on your iPhone
+
+See [TESTFLIGHT.md](TESTFLIGHT.md): add four repository secrets once, then run the **TestFlight** workflow and install the build from the TestFlight app.
 
 ## Controls
 
