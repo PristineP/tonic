@@ -87,6 +87,11 @@ jobs:
           shoot "$PHONE" iphone-settings -uiSettings
           WELCOME_SEEN=NO shoot "$PHONE" iphone-guide
           if [ -n "$PAD" ]; then shoot "$PAD" ipad -uiDemo; fi
+          # Fall back to another iPad if the first simulator failed to boot.
+          if [ ! -f shots/ipad.png ]; then
+            PAD2=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPad (Air|\\()"))] | sort | last // empty')
+            if [ -n "$PAD2" ]; then shoot "$PAD2" ipad -uiDemo; fi
+          fi
           ls -la shots
 
       - name: Publish screenshots to ci-screenshots branch
@@ -106,7 +111,7 @@ jobs:
           fi
           find . -maxdepth 1 -name '*.png' -delete
           cp shots/*.png .
-          git add -f *.png
+          git add -A -f -- '*.png'
           git commit -m "Screenshots for ${SRC_SHA}" || exit 0
           git push origin ci-screenshots
 
