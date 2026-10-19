@@ -78,18 +78,22 @@ struct ContentView: View {
     }
 
     private func portraitLayout(_ size: CGSize) -> some View {
-        let width = min(size.width - 24, 860)
-        let joystick = min(width * 0.42, max(120, size.height * 0.22), 260)
-        let deviceHeight = width / DeviceView.aspect
+        let width: CGFloat = min(size.width - 24, 860)
+        let joystickByHeight: CGFloat = max(120, size.height * 0.22)
+        let joystick: CGFloat = min(min(width * 0.42, joystickByHeight), 260)
+        let deviceHeight: CGFloat = width / DeviceView.aspect
         // Room left for a magnified copy of the OLED above the device.
-        let spare = size.height - deviceHeight - max(joystick, 290) - 40 - 18 * 4 - 20
-        let displayHeight = min(spare, width * 0.32)
+        let controlsHeight: CGFloat = max(joystick, 290)
+        let chrome: CGFloat = 40 + 18 * 4 + 20
+        let spare: CGFloat = size.height - deviceHeight - controlsHeight - chrome
+        let displayHeight: CGFloat = min(spare, width * 0.32)
+        let showDisplay = bigDisplay && displayHeight >= 70
         return VStack(spacing: 18) {
             topBar
                 .frame(width: width)
                 .padding(.top, 4)
             Spacer(minLength: 0)
-            if bigDisplay && displayHeight >= 70 {
+            if showDisplay {
                 BigDisplay()
                     .frame(width: displayHeight * 2.2, height: displayHeight)
                     .onTapGesture { toggleBigDisplay() }
@@ -120,9 +124,11 @@ struct ContentView: View {
     }
 
     private func landscapeLayout(_ size: CGSize) -> some View {
-        let deviceHeight = min(size.height - 70, (size.width - 360) / DeviceView.aspect)
-        let deviceWidth = deviceHeight * DeviceView.aspect
-        let side = max(140, min(220, (size.width - deviceWidth) / 2 - 24))
+        let byWidth: CGFloat = (size.width - 360) / DeviceView.aspect
+        let deviceHeight: CGFloat = min(size.height - 70, byWidth)
+        let deviceWidth: CGFloat = deviceHeight * DeviceView.aspect
+        let sideRoom: CGFloat = (size.width - deviceWidth) / 2 - 24
+        let side: CGFloat = max(140, min(220, sideRoom))
         return VStack(spacing: 10) {
             topBar
                 .padding(.horizontal, 8)
