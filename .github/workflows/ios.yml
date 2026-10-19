@@ -46,6 +46,7 @@ jobs:
           grep -q "BUILD SUCCEEDED" build-sim.log
 
       - name: Simulator screenshots
+        timeout-minutes: 15
         run: |
           set -x
           APP=build/sim/Build/Products/Debug-iphonesimulator/HiChord.app
@@ -63,7 +64,10 @@ jobs:
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 || true
             xcrun simctl install "$udid" "$APP"
             xcrun simctl spawn "$udid" defaults write com.pocketaudio.hichord hichord.seenWelcome -bool "${WELCOME_SEEN:-YES}"
-            xcrun simctl launch --terminate-running-process "$udid" com.pocketaudio.hichord "$@"
+            # A hung launch would otherwise block forever (the simulator has no watchdog).
+            ( xcrun simctl launch --terminate-running-process "$udid" com.pocketaudio.hichord "$@" & pid=$!; \
+              for i in $(seq 1 60); do kill -0 $pid 2>/dev/null || exit 0; sleep 1; done; \
+              echo "::error::simctl launch did not return ($name)"; kill $pid ) || true
             sleep 7
             xcrun simctl io "$udid" screenshot "shots/$name.png"
             # Fail if the app is no longer running (crash).
