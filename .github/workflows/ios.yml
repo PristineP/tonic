@@ -1,9 +1,8 @@
 name: iOS
 
+# Manual only: this runs on a macOS runner, which burns the free Actions allowance 10x faster than Linux.
+# Run it from the Actions tab when you want a cloud build.
 on:
-  push:
-    branches-ignore: [ci-screenshots]
-  pull_request:
   workflow_dispatch:
 
 permissions:
