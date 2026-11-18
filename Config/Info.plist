@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Heptad</string>
+	<string>Tonic</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.music</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Heptad uses the microphone for the tuner and to sample sounds you can play as chords.</string>
+	<string>Tonic uses the microphone for the tuner and to sample sounds you can play as chords.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

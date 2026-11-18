@@ -26,12 +26,12 @@ jobs:
           xcrun simctl list devices available | head -40
 
       - name: Core unit tests
-        run: swift test --package-path HeptadCore
+        run: swift test --package-path TonicCore
 
       - name: Build (Release, device, unsigned)
         run: |
           set -o pipefail
-          xcodebuild -project Heptad.xcodeproj -scheme Heptad -configuration Release \
+          xcodebuild -project Tonic.xcodeproj -scheme Tonic -configuration Release \
             -destination 'generic/platform=iOS' -derivedDataPath build/device \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-device.log | grep -E "error:|warning:|BUILD" || true
           grep -q "BUILD SUCCEEDED" build-device.log
@@ -39,7 +39,7 @@ jobs:
       - name: Build (Debug, simulator)
         run: |
           set -o pipefail
-          xcodebuild -project Heptad.xcodeproj -scheme Heptad -configuration Debug \
+          xcodebuild -project Tonic.xcodeproj -scheme Tonic -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-sim.log | grep -E "error:|warning:|BUILD" || true
           grep -q "BUILD SUCCEEDED" build-sim.log
@@ -50,7 +50,7 @@ jobs:
           set -o pipefail
           PHONE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | .name | select(test("^iPhone [0-9]+ Pro$"))] | sort | last')
           echo "Testing on $PHONE"
-          xcodebuild test -project Heptad.xcodeproj -scheme Heptad \
+          xcodebuild test -project Tonic.xcodeproj -scheme Tonic \
             -destination "platform=iOS Simulator,name=$PHONE" -derivedDataPath build/test \
             -retry-tests-on-failure -test-iterations 2 \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build-test.log | grep -E "error:|warning:|Test Case .*(passed|failed|skipped)|Executed|TEST (SUCCEEDED|FAILED)" || true
@@ -62,7 +62,7 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         run: |
-          APP=build/sim/Build/Products/Debug-iphonesimulator/Heptad.app
+          APP=build/sim/Build/Products/Debug-iphonesimulator/Tonic.app
           mkdir -p shots
           DEVICES=$(xcrun simctl list devices available -j)
           PHONE=$(echo "$DEVICES" | jq -r '[.devices[][] | .name | select(test("^iPhone [0-9]+ Pro$"))] | sort | last // empty')
@@ -85,15 +85,15 @@ jobs:
             limit 240 xcrun simctl bootstatus "$udid" -b >/dev/null || { echo "::warning::$device did not boot; skipping $name"; FAILED="$FAILED $udid"; return 0; }
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 || true
             xcrun simctl install "$udid" "$APP"
-            xcrun simctl spawn "$udid" defaults write com.pristinep.heptad heptad.seenWelcome -bool "${WELCOME_SEEN:-YES}"
+            xcrun simctl spawn "$udid" defaults write com.pristinep.tonic tonic.seenWelcome -bool "${WELCOME_SEEN:-YES}"
             # A hung launch would otherwise block forever (the simulator has no watchdog).
-            limit 90 xcrun simctl launch --terminate-running-process "$udid" com.pristinep.heptad "$@" || echo "::error::launch did not complete ($name)"
+            limit 90 xcrun simctl launch --terminate-running-process "$udid" com.pristinep.tonic "$@" || echo "::error::launch did not complete ($name)"
             sleep 7
             xcrun simctl io "$udid" screenshot "shots/$name.png"
             # Fail if the app is no longer running (crash).
-            if ! xcrun simctl spawn "$udid" launchctl list | grep -q com.pristinep.heptad; then
+            if ! xcrun simctl spawn "$udid" launchctl list | grep -q com.pristinep.tonic; then
               echo "::error::App not running after launch ($name)"
-              xcrun simctl spawn "$udid" log show --last 2m --predicate 'process == "Heptad"' | tail -120
+              xcrun simctl spawn "$udid" log show --last 2m --predicate 'process == "Tonic"' | tail -120
               exit 1
             fi
           }
@@ -131,5 +131,5 @@ jobs:
         if: always()
         run: |
           echo "=== Compiler warnings in project sources ==="
-          cat build-*.log 2>/dev/null | grep -E "warning:" | grep -E "/(Heptad|HeptadCore)/" | sed -E 's#^.*/heptad/heptad/##' | sort -u || true
+          cat build-*.log 2>/dev/null | grep -E "warning:" | grep -E "/(Tonic|TonicCore)/" | sed -E 's#^.*/tonic/tonic/##' | sort -u || true
           echo "=== end ==="
