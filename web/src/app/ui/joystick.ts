@@ -1,7 +1,7 @@
 // The eight-way clickable joystick: drag to bend chords, tap to click.
 import { JoyDirection, JoystickMap } from '../../core/theory/joystick'
 import type { AppModel } from '../model'
-import { h } from './dom'
+import { capture, h } from './dom'
 
 export class JoystickView {
   readonly el: HTMLDivElement
@@ -41,7 +41,7 @@ export class JoystickView {
       if (pointer !== null) return
       e.preventDefault()
       pointer = e.pointerId
-      this.el.setPointerCapture(e.pointerId)
+      capture(this.el, e.pointerId)
       origin = { x: e.clientX, y: e.clientY }
       downAt = performance.now()
       travelled = 0

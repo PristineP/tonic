@@ -58,3 +58,12 @@ export function capitalized(s: string): string {
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(' ')
 }
+
+/// Pointer capture that never throws (synthetic or already-ended pointers).
+export function capture(el: Element, pointerId: number): void {
+  try {
+    el.setPointerCapture(pointerId)
+  } catch {
+    /* pointer no longer active */
+  }
+}

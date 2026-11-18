@@ -6,7 +6,7 @@ import { ChordBuilder, ChordSpec, HarmonySettings } from '../../core/theory/harm
 import { JoyDirection } from '../../core/theory/joystick'
 import { NoteNames, Scale } from '../../core/theory/music'
 import type { AppModel } from '../model'
-import { h, svg } from './dom'
+import { capture, h, svg } from './dom'
 import { createOLEDCanvas, drawOLED } from './oled'
 
 export const DEVICE_ASPECT = 470 / 335
@@ -34,7 +34,7 @@ export function keyTouch(
     if (pointer !== null) return
     e.preventDefault()
     pointer = e.pointerId
-    el.setPointerCapture(e.pointerId)
+    capture(el, e.pointerId)
     start = { x: e.clientX, y: e.clientY }
     last = JoyDirection.center
     onPress()
@@ -156,7 +156,7 @@ export class DeviceView {
     let start = { x: 0, y: 0 }
     wheel.addEventListener('pointerdown', (e) => {
       e.preventDefault()
-      wheel.setPointerCapture(e.pointerId)
+      capture(wheel, e.pointerId)
       startVal = this.model.device.wheelValue
       start = { x: e.clientX, y: e.clientY }
     })
